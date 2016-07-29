@@ -2,9 +2,11 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using JetBrains.Annotations;
+using Microsoft.EntityFrameworkCore.Internal;
 
 namespace Microsoft.EntityFrameworkCore.Metadata.Internal
 {
@@ -140,6 +142,179 @@ namespace Microsoft.EntityFrameworkCore.Metadata.Internal
         /// </summary>
         public static PropertyInfo GetPropertyInfo([NotNull] this IPropertyBase propertyBase)
             => propertyBase.AsPropertyBase().PropertyInfo;
+
+        /// <summary>
+        ///     This API supports the Entity Framework Core infrastructure and is not intended to be used 
+        ///     directly from your code. This API may change or be removed in future releases.
+        /// </summary>
+        public static FieldInfo GetFieldInfo([NotNull] this IPropertyBase propertyBase)
+            => propertyBase.AsPropertyBase().FieldInfo;
+
+        /// <summary>
+        ///     This API supports the Entity Framework Core infrastructure and is not intended to be used 
+        ///     directly from your code. This API may change or be removed in future releases.
+        /// </summary>
+        public static MemberInfo GetMemberInfo(
+            [NotNull] this IPropertyBase propertyBase,
+            bool forConstruction,
+            bool forSet)
+        {
+            var memberInfo = propertyBase.FindMemberInfo(forConstruction, forSet);
+
+            var message = memberInfo as string;
+            if (message != null)
+            {
+                throw new InvalidOperationException(message);
+            }
+
+            return (MemberInfo)memberInfo;
+        }
+
+        /// <summary>
+        ///     This API supports the Entity Framework Core infrastructure and is not intended to be used 
+        ///     directly from your code. This API may change or be removed in future releases.
+        /// </summary>
+        public static object FindMemberInfo(
+            [NotNull] this IPropertyBase propertyBase,
+            bool forConstruction,
+            bool forSet)
+        {
+            var propertyInfo = propertyBase.GetPropertyInfo();
+            var fieldInfo = propertyBase.GetFieldInfo();
+            var isCollectionNav = (propertyBase as INavigation)?.IsCollection() == true;
+
+            var mode = propertyBase.GetPropertyAccessMode();
+            if (mode == null
+                || mode == PropertyAccessMode.FieldDuringConstruction)
+            {
+                if (forConstruction
+                    && fieldInfo != null
+                    && !fieldInfo.IsInitOnly)
+                {
+                    return fieldInfo;
+                }
+
+                if (forConstruction)
+                {
+                    if (fieldInfo != null)
+                    {
+                        if (!fieldInfo.IsInitOnly)
+                        {
+                            return fieldInfo;
+                        }
+
+                        if (mode == PropertyAccessMode.FieldDuringConstruction
+                            && !isCollectionNav)
+                        {
+                            return CoreStrings.ReadonlyField(fieldInfo.Name, propertyBase.DeclaringEntityType.DisplayName());
+                        }
+                    }
+
+                    if (mode == PropertyAccessMode.FieldDuringConstruction)
+                    {
+                        if (!isCollectionNav)
+                        {
+                            return CoreStrings.NoBackingField(
+                                propertyBase.Name, propertyBase.DeclaringEntityType.DisplayName(), nameof(PropertyAccessMode));
+                        }
+                        return null;
+                    }
+                }
+
+                if (forSet)
+                {
+                    var setterProperty = propertyInfo?.FindSetterProperty();
+                    if (setterProperty != null)
+                    {
+                        return setterProperty;
+                    }
+
+                    if (fieldInfo != null)
+                    {
+                        if (!fieldInfo.IsInitOnly)
+                        {
+                            return fieldInfo;
+                        }
+
+                        if (!isCollectionNav)
+                        {
+                            return CoreStrings.ReadonlyField(fieldInfo.Name, propertyBase.DeclaringEntityType.DisplayName());
+                        }
+                    }
+
+                    if (!isCollectionNav)
+                    {
+                        return CoreStrings.NoFieldOrSetter(propertyBase.Name, propertyBase.DeclaringEntityType.DisplayName());
+                    }
+
+                    return null;
+                }
+
+                var getterPropertyInfo = propertyInfo?.FindGetterProperty();
+                if (getterPropertyInfo != null)
+                {
+                    return getterPropertyInfo;
+                }
+
+                if (fieldInfo != null)
+                {
+                    return fieldInfo;
+                }
+
+                return CoreStrings.NoFieldOrGetter(propertyBase.Name, propertyBase.DeclaringEntityType.DisplayName());
+            }
+
+            if (mode == PropertyAccessMode.Field)
+            {
+                if (fieldInfo == null)
+                {
+                    if (!forSet
+                        || !isCollectionNav)
+                    {
+                        return CoreStrings.NoBackingField(
+                            propertyBase.Name, propertyBase.DeclaringEntityType.DisplayName(), nameof(PropertyAccessMode));
+                    }
+                    return null;
+                }
+
+                if (forSet
+                    && fieldInfo.IsInitOnly)
+                {
+                    if (!isCollectionNav)
+                    {
+                        return CoreStrings.ReadonlyField(fieldInfo.Name, propertyBase.DeclaringEntityType.DisplayName());
+                    }
+                    return null;
+                }
+
+                return fieldInfo;
+            }
+
+            if (propertyInfo == null)
+            {
+                return CoreStrings.NoProperty(fieldInfo.Name, propertyBase.DeclaringEntityType.DisplayName(), nameof(PropertyAccessMode));
+            }
+
+            if (forSet)
+            {
+                var setterProperty = propertyInfo.FindSetterProperty();
+                if (setterProperty == null
+                    && !isCollectionNav)
+                {
+                    return CoreStrings.NoSetter(propertyBase.Name, propertyBase.DeclaringEntityType.DisplayName(), nameof(PropertyAccessMode));
+                }
+
+                return setterProperty;
+            }
+
+            var getterProperty = propertyInfo.FindGetterProperty();
+            if (getterProperty == null)
+            {
+                return CoreStrings.NoGetter(propertyBase.Name, propertyBase.DeclaringEntityType.DisplayName(), nameof(PropertyAccessMode));
+            }
+
+            return getterProperty;
+        }
 
         /// <summary>
         ///     This API supports the Entity Framework Core infrastructure and is not intended to be used 
