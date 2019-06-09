@@ -1,26 +1,32 @@
 {
-    "adx": { // Packages written by the ADX team and that ship on NuGet.org
+    "adx": {
         "rules": [
             "AdxVerificationCompositeRule"
         ],
         "packages": {
-            "Microsoft.EntityFrameworkCore": { },
-            "Microsoft.EntityFrameworkCore.Design": { },
-            "Microsoft.EntityFrameworkCore.Design.Core": { },
-            "Microsoft.EntityFrameworkCore.Specification.Tests": { },
-            "Microsoft.EntityFrameworkCore.InMemory": { },
-            "Microsoft.EntityFrameworkCore.SqlServer": { },
-            "Microsoft.EntityFrameworkCore.SqlServer.Design": { },
-            "Microsoft.EntityFrameworkCore.Relational": { },
-            "Microsoft.EntityFrameworkCore.Relational.Design": { },
-            "Microsoft.EntityFrameworkCore.Relational.Specification.Tests": { },
-            "Microsoft.EntityFrameworkCore.Relational.Design.Specification.Tests": { },
-            "Microsoft.EntityFrameworkCore.Sqlite": { },
-            "Microsoft.EntityFrameworkCore.Sqlite.Design": { },
-            "Microsoft.EntityFrameworkCore.Tools": { }
+            "dotnet-ef": {
+                "packageTypes": [
+                    "DotnetTool"
+                ],
+                "Exclusions": {
+                    "SERVICING_ATTRIBUTE": {
+                        "tools/netcoreapp2.2/any/Newtonsoft.Json.dll": "External"
+                    },
+                    "WRONG_PUBLICKEYTOKEN": {
+                        "tools/netcoreapp2.2/any/Newtonsoft.Json.dll": "External"
+                    }
+                }
+            },
+            "Microsoft.EntityFrameworkCore.Design": {
+                "Exclusions": {
+                    "BUILD_ITEMS_FRAMEWORK": {
+                        "*": "False negative. aspnet/BuildTools#554"
+                    }
+                }
+            }
         }
     },
-    "Default": { // Rules to run for packages not listed in any other set.
+    "Default": {
         "rules": [
             "DefaultCompositeRule"
         ]

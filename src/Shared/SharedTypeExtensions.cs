@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using Microsoft.EntityFrameworkCore.Internal;
 
 // ReSharper disable once CheckNamespace
 namespace System
@@ -19,28 +20,41 @@ namespace System
             var typeInfo = type.GetTypeInfo();
 
             return !typeInfo.IsValueType
-                   || (typeInfo.IsGenericType
-                       && (typeInfo.GetGenericTypeDefinition() == typeof(Nullable<>)));
+                   || typeInfo.IsGenericType
+                   && typeInfo.GetGenericTypeDefinition() == typeof(Nullable<>);
         }
 
-        public static Type MakeNullable(this Type type)
-            => type.IsNullableType()
+        public static bool IsValidEntityType(this Type type)
+            => type.GetTypeInfo().IsClass;
+
+        public static Type MakeNullable(this Type type, bool nullable = true)
+            => type.IsNullableType() == nullable
                 ? type
-                : typeof(Nullable<>).MakeGenericType(type);
+                : nullable
+                    ? typeof(Nullable<>).MakeGenericType(type)
+                    : type.UnwrapNullableType();
 
         public static bool IsInteger(this Type type)
         {
             type = type.UnwrapNullableType();
 
-            return (type == typeof(int))
-                   || (type == typeof(long))
-                   || (type == typeof(short))
-                   || (type == typeof(byte))
-                   || (type == typeof(uint))
-                   || (type == typeof(ulong))
-                   || (type == typeof(ushort))
-                   || (type == typeof(sbyte))
-                   || (type == typeof(char));
+            return type == typeof(int)
+                   || type == typeof(long)
+                   || type == typeof(short)
+                   || type == typeof(byte)
+                   || type == typeof(uint)
+                   || type == typeof(ulong)
+                   || type == typeof(ushort)
+                   || type == typeof(sbyte)
+                   || type == typeof(char);
+        }
+
+        public static bool IsSignedInteger(this Type type)
+        {
+            return type == typeof(int)
+                   || type == typeof(long)
+                   || type == typeof(short)
+                   || type == typeof(sbyte);
         }
 
         public static PropertyInfo GetAnyProperty(this Type type, string name)
@@ -54,32 +68,19 @@ namespace System
             return props.SingleOrDefault();
         }
 
-        private static bool IsNonIntegerPrimitive(this Type type)
-        {
-            type = type.UnwrapNullableType();
-
-            return (type == typeof(bool))
-                   || (type == typeof(byte[]))
-                   || (type == typeof(DateTime))
-                   || (type == typeof(DateTimeOffset))
-                   || (type == typeof(decimal))
-                   || (type == typeof(double))
-                   || (type == typeof(float))
-                   || (type == typeof(Guid))
-                   || (type == typeof(string))
-                   || (type == typeof(TimeSpan))
-                   || type.GetTypeInfo().IsEnum;
-        }
-
-        public static bool IsPrimitive(this Type type)
-            => type.IsInteger() || type.IsNonIntegerPrimitive();
-
         public static bool IsInstantiable(this Type type) => IsInstantiable(type.GetTypeInfo());
 
         private static bool IsInstantiable(TypeInfo type)
             => !type.IsAbstract
                && !type.IsInterface
                && (!type.IsGenericType || !type.IsGenericTypeDefinition);
+
+        public static bool IsGrouping(this Type type) => IsGrouping(type.GetTypeInfo());
+
+        private static bool IsGrouping(TypeInfo type)
+            => type.IsGenericType
+               && (type.GetGenericTypeDefinition() == typeof(IGrouping<,>)
+                   || type.GetGenericTypeDefinition() == typeof(IAsyncGrouping<,>));
 
         public static Type UnwrapEnumType(this Type type)
         {
@@ -112,14 +113,28 @@ namespace System
 
         public static Type TryGetElementType(this Type type, Type interfaceOrBaseType)
         {
-            if (!type.GetTypeInfo().IsGenericTypeDefinition)
+            if (type.GetTypeInfo().IsGenericTypeDefinition)
             {
-                var types = GetGenericTypeImplementations(type, interfaceOrBaseType).ToArray();
-
-                return types.Length == 1 ? types[0].GetTypeInfo().GenericTypeArguments.FirstOrDefault() : null;
+                return null;
             }
 
-            return null;
+            var types = GetGenericTypeImplementations(type, interfaceOrBaseType);
+
+            Type singleImplementation = null;
+            foreach (var impelementation in types)
+            {
+                if (singleImplementation == null)
+                {
+                    singleImplementation = impelementation;
+                }
+                else
+                {
+                    singleImplementation = null;
+                    break;
+                }
+            }
+
+            return singleImplementation?.GetTypeInfo().GenericTypeArguments.FirstOrDefault();
         }
 
         public static IEnumerable<Type> GetGenericTypeImplementations(this Type type, Type interfaceOrBaseType)
@@ -127,14 +142,24 @@ namespace System
             var typeInfo = type.GetTypeInfo();
             if (!typeInfo.IsGenericTypeDefinition)
             {
-                return (interfaceOrBaseType.GetTypeInfo().IsInterface ? typeInfo.ImplementedInterfaces : type.GetBaseTypes())
-                    .Union(new[] { type })
-                    .Where(
-                        t => t.GetTypeInfo().IsGenericType
-                             && (t.GetGenericTypeDefinition() == interfaceOrBaseType));
-            }
+                var baseTypes = interfaceOrBaseType.GetTypeInfo().IsInterface
+                    ? typeInfo.ImplementedInterfaces
+                    : type.GetBaseTypes();
+                foreach (var baseType in baseTypes)
+                {
+                    if (baseType.GetTypeInfo().IsGenericType
+                        && baseType.GetGenericTypeDefinition() == interfaceOrBaseType)
+                    {
+                        yield return baseType;
+                    }
+                }
 
-            return Enumerable.Empty<Type>();
+                if (type.GetTypeInfo().IsGenericType
+                    && type.GetGenericTypeDefinition() == interfaceOrBaseType)
+                {
+                    yield return type;
+                }
+            }
         }
 
         public static IEnumerable<Type> GetBaseTypes(this Type type)
@@ -161,7 +186,7 @@ namespace System
 
         public static ConstructorInfo GetDeclaredConstructor(this Type type, Type[] types)
         {
-            types = types ?? new Type[0];
+            types = types ?? Array.Empty<Type>();
 
             return type.GetTypeInfo().DeclaredConstructors
                 .SingleOrDefault(
@@ -174,19 +199,46 @@ namespace System
             do
             {
                 var typeInfo = type.GetTypeInfo();
-                var propertyInfo = typeInfo.GetDeclaredProperty(name);
-                if (propertyInfo != null
-                    && !(propertyInfo.GetMethod ?? propertyInfo.SetMethod).IsStatic)
+                foreach (var propertyInfo in typeInfo.DeclaredProperties)
                 {
-                    yield return propertyInfo;
+                    if (propertyInfo.Name.Equals(name, StringComparison.Ordinal)
+                        && !(propertyInfo.GetMethod ?? propertyInfo.SetMethod).IsStatic)
+                    {
+                        yield return propertyInfo;
+                    }
                 }
+
                 type = typeInfo.BaseType;
             }
             while (type != null);
         }
 
+        public static IEnumerable<MemberInfo> GetMembersInHierarchy(this Type type)
+        {
+            do
+            {
+                // Do the whole hierarchy for properties first since looking for fields is slower.
+                foreach (var propertyInfo in type.GetRuntimeProperties().Where(pi => !(pi.GetMethod ?? pi.SetMethod).IsStatic))
+                {
+                    yield return propertyInfo;
+                }
+
+                foreach (var fieldInfo in type.GetRuntimeFields().Where(f => !f.IsStatic))
+                {
+                    yield return fieldInfo;
+                }
+
+                type = type.BaseType;
+            }
+            while (type != null);
+        }
+
+        public static IEnumerable<MemberInfo> GetMembersInHierarchy(this Type type, string name)
+            => type.GetMembersInHierarchy().Where(m => m.Name == name);
+
         private static readonly Dictionary<Type, object> _commonTypeDictionary = new Dictionary<Type, object>
         {
+#pragma warning disable IDE0034 // Simplify 'default' expression - default causes default(object)
             { typeof(int), default(int) },
             { typeof(Guid), default(Guid) },
             { typeof(DateTime), default(DateTime) },
@@ -202,6 +254,7 @@ namespace System
             { typeof(ushort), default(ushort) },
             { typeof(ulong), default(ulong) },
             { typeof(sbyte), default(sbyte) }
+#pragma warning restore IDE0034 // Simplify 'default' expression
         };
 
         public static object GetDefaultValue(this Type type)
@@ -214,13 +267,12 @@ namespace System
             // A bit of perf code to avoid calling Activator.CreateInstance for common types and
             // to avoid boxing on every call. This is about 50% faster than just calling CreateInstance
             // for all value types.
-            object value;
-            return _commonTypeDictionary.TryGetValue(type, out value)
+            return _commonTypeDictionary.TryGetValue(type, out var value)
                 ? value
                 : Activator.CreateInstance(type);
         }
 
-        public static IEnumerable<TypeInfo> GetConstructableTypes(this Assembly assembly)
+        public static IEnumerable<TypeInfo> GetConstructibleTypes(this Assembly assembly)
             => assembly.GetLoadableDefinedTypes().Where(
                 t => !t.IsAbstract
                      && !t.IsGenericTypeDefinition);

@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Reflection;
 using JetBrains.Annotations;
 using Microsoft.EntityFrameworkCore.Internal;
 
@@ -17,28 +16,13 @@ namespace Microsoft.EntityFrameworkCore.Utilities
         [ContractAnnotation("value:null => halt")]
         public static T NotNull<T>([NoEnumeration] T value, [InvokerParameterName] [NotNull] string parameterName)
         {
+#pragma warning disable IDE0041 // Use 'is null' check
             if (ReferenceEquals(value, null))
+#pragma warning restore IDE0041 // Use 'is null' check
             {
                 NotEmpty(parameterName, nameof(parameterName));
 
                 throw new ArgumentNullException(parameterName);
-            }
-
-            return value;
-        }
-
-        [ContractAnnotation("value:null => halt")]
-        public static T NotNull<T>(
-            [NoEnumeration] T value,
-            [InvokerParameterName] [NotNull] string parameterName,
-            [NotNull] string propertyName)
-        {
-            if (ReferenceEquals(value, null))
-            {
-                NotEmpty(parameterName, nameof(parameterName));
-                NotEmpty(propertyName, nameof(propertyName));
-
-                throw new ArgumentException(CoreStrings.ArgumentPropertyNull(propertyName, parameterName));
             }
 
             return value;
@@ -53,7 +37,7 @@ namespace Microsoft.EntityFrameworkCore.Utilities
             {
                 NotEmpty(parameterName, nameof(parameterName));
 
-                throw new ArgumentException(CoreStrings.CollectionArgumentIsEmpty(parameterName));
+                throw new ArgumentException(AbstractionsStrings.CollectionArgumentIsEmpty(parameterName));
             }
 
             return value;
@@ -63,13 +47,13 @@ namespace Microsoft.EntityFrameworkCore.Utilities
         public static string NotEmpty(string value, [InvokerParameterName] [NotNull] string parameterName)
         {
             Exception e = null;
-            if (ReferenceEquals(value, null))
+            if (value is null)
             {
                 e = new ArgumentNullException(parameterName);
             }
             else if (value.Trim().Length == 0)
             {
-                e = new ArgumentException(CoreStrings.ArgumentIsEmpty(parameterName));
+                e = new ArgumentException(AbstractionsStrings.ArgumentIsEmpty(parameterName));
             }
 
             if (e != null)
@@ -84,12 +68,12 @@ namespace Microsoft.EntityFrameworkCore.Utilities
 
         public static string NullButNotEmpty(string value, [InvokerParameterName] [NotNull] string parameterName)
         {
-            if (!ReferenceEquals(value, null)
-                && (value.Length == 0))
+            if (!(value is null)
+                && value.Length == 0)
             {
                 NotEmpty(parameterName, nameof(parameterName));
 
-                throw new ArgumentException(CoreStrings.ArgumentIsEmpty(parameterName));
+                throw new ArgumentException(AbstractionsStrings.ArgumentIsEmpty(parameterName));
             }
 
             return value;
@@ -105,18 +89,6 @@ namespace Microsoft.EntityFrameworkCore.Utilities
                 NotEmpty(parameterName, nameof(parameterName));
 
                 throw new ArgumentException(parameterName);
-            }
-
-            return value;
-        }
-
-        public static Type ValidEntityType(Type value, [InvokerParameterName] [NotNull] string parameterName)
-        {
-            if (!value.GetTypeInfo().IsClass)
-            {
-                NotEmpty(parameterName, nameof(parameterName));
-
-                throw new ArgumentException(CoreStrings.InvalidEntityType(value, parameterName));
             }
 
             return value;
